@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   Design tokens. Everything the scene and the overlay share, so the
+   DOM type and the WebGL materials never drift apart.
+   ------------------------------------------------------------------ */
+@theme {
+  --font-display: "Iowan Old Style", "Palatino Linotype", "URW Palladio L", Palatino, Georgia, serif;
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* palette mirrors src/config.js PALETTE — one list, two consumers */
+  --color-void: #06070a;
+  --color-ink: #0b0e13;
+  --color-ink2: #12161d;
+  --color-bone: #f1ece4;
+  --color-ash: #9aa3ae;
+  --color-oxy: #ff4d63;
+  --color-oxy-deep: #7a0f26;
+  --color-deoxy: #5f8dff;
+  --color-deoxy-deep: #16306e;
+  --color-myo: #a8323f;
+  --color-myo-deep: #3d0f18;
+  --color-endo: #f0d9c0;
+  --color-fat: #e3b776;
+  --color-valve: #f5ece0;
+  --color-wire: #5ef2c0;
+  --color-wire-hot: #d8fff2;
+  --color-sac: #8fb6d8;
+  --color-ember: #ffb347;
+  --color-surge: #5ef2c0;
+  --color-key: #ffd9c9;
+  --color-rim: #5f8dff;
+
+  --shadow-glow: 0 0 60px -12px rgb(255 77 99 / 0.55);
+}
+
+/* ------------------------------------------------------------------
+   Base
+   ------------------------------------------------------------------ */
+@layer base {
+  :root {
+    color-scheme: dark;
+    --rail-w: 1px;
+  }
+
+  html {
+    /* Lenis needs native scrolling preserved; we only kill the rubber-band jitter. */
+    scroll-behavior: auto;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-void);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Lenis drives scrolling with transforms when possible; keep the
+     document scrollable for browsers without JS smoothing. */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-blood) 70%, transparent);
+    color: #fff;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-surge);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Layout primitives
+   ------------------------------------------------------------------ */
+@utility grain {
+  /* Subtle film grain over the whole viewport — the one cheap trick
+     that makes a WebGL render look like a graded image. */
+  background-image: radial-gradient(rgb(255 255 255 / 0.05) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
+}
+
+@utility vignette {
+  background: radial-gradient(120% 100% at 50% 45%, transparent 45%, rgb(0 0 0 / 0.62) 100%);
+}
+
+@utility text-shadow-cinema {
+  text-shadow: 0 2px 30px rgb(0 0 0 / 0.85), 0 1px 2px rgb(0 0 0 / 0.9);
+}
+
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-ash) 80%, var(--color-bone));
+}
+
+/* ------------------------------------------------------------------
+   3D-anchored labels. Written to every frame from the render loop, so
+   they live outside React state entirely (see src/three/labels.js).
+   ------------------------------------------------------------------ */
+.label {
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  left: 0;
+  transform: translate3d(-9999px, -9999px, 0);
+  will-change: transform, opacity;
+  pointer-events: none;
+  contain: layout style;
+}
+
+.label__dot {
+  position: absolute;
+  top: -4.5px;
+  left: -4.5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-bone);
+  box-shadow: 0 0 0 1px rgb(6 7 10 / 0.7), 0 0 22px 4px color-mix(in oklab, var(--label-hue, var(--color-blood)) 70%, transparent);
+}
+
+.label__dot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--label-hue, var(--color-blood)) 90%, #fff);
+}
+
+.label__body {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.label__body--flip {
+  left: auto;
+  right: 16px;
+  flex-direction: row-reverse;
+}
+
+.label__rule {
+  width: 34px;
+  height: var(--rail-w);
+  background: linear-gradient(90deg, currentColor, transparent);
+  opacity: 0.55;
+}
+
+.label__text {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-bone);
+  text-shadow: 0 1px 12px rgb(0 0 0 / 0.95);
+}
+
+.label__sub {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-ash);
+}
+
+/* Stat chips that also float over the model (data-viz chapter) */
+.stat-pin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate3d(-9999px, -9999px, 0);
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------
+   Motion policy
+   ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .motion-only {
+    display: none;
+  }
+}
+
+html.calm .motion-only {
+  display: none;
+}
+
+html.calm * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* Respect the user if the GPU or the tab says it is struggling */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--color-ink) !important;
+    backdrop-filter: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Scrollbar: present but quiet, since the rail on the right is the
+   real progress indicator.
+   ------------------------------------------------------------------ */
+::-webkit-scrollbar {
+  width: 9px;
+}
+::-webkit-scrollbar-track {
+  background: #06070a;
+}
+::-webkit-scrollbar-thumb {
+  background: #232a33;
+  border-radius: 9px;
+  border: 2px solid #06070a;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-blood) 45%, #232a33);
+}
+
+/* ------------------------------------------------------------------
+   Print — the overlay is a real lesson sheet once the canvas is off
+   ------------------------------------------------------------------ */
+@media print {
+  #scene,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #111;
+  }
+  section.chapter {
+    min-height: 0 !important;
+    height: auto !important;
+    page-break-inside: avoid;
+    padding: 1.5rem 0;
+  }
+  .panel {
+    background: none !important;
+    border: 0 !important;
+    backdrop-filter: none !important;
+  }
+}

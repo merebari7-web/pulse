@@ -242,6 +242,30 @@ Everything is a **stylised teaching model** — geometry, colours and proportion
 not the atlas. It is not a medical device, not a diagnostic aid, and the answers in `exam` are
 study answers, not clinical advice.
 
+## Publishing on GitHub (Pages)
+
+The repo is already a git repository with one commit, a `.gitignore` (`node_modules/`, `dist/`,
+`.tmp/`) and an `.npmrc` carrying `legacy-peer-deps=true`, so `npm ci` works for anyone who clones
+it. `dist/` is built with `base: './'`, so **every** asset URL in `index.html` is relative — verified
+by serving `dist/` under a `/pulse/` subpath and fetching all six generated assets: 200 across the
+board. That is what makes it work at `https://<user>.github.io/<repo>/` with no config change.
+
+```bash
+gh repo create pulse --public --source=. --push          # if you have the gh CLI
+# …or by hand:
+git remote add origin git@github.com:<user>/pulse.git
+git push -u origin main
+```
+
+Then **Settings → Pages → Build and deployment → Source: “GitHub Actions”**. From then on every push
+to `main` runs `.github/workflows/pages.yml`, which does `npm ci && npm run check && vite build` and
+publishes `dist/` — so a commit whose 62 assertions fail never deploys, and the Pages build is the
+same build the checks validated. (Prefer the older branch-based flow instead? `npm run build` then
+push `dist/` to a `gh-pages` branch — nothing in the app reads a path, so either works.)
+
+Fonts, model geometry, shaders and icons are all local or generated, so Pages needs no CDN, no
+environment variables and no build secrets.
+
 ## Extending it
 
 - **Re-choreograph** → `src/data/journey.js`. Add a chapter, give every track a keyframe in it,

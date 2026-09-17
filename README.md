@@ -8,8 +8,10 @@ electrical system and re-forming the organ as a live data chart.
 Subject: the human heart — four chambers, four valves, one wire — written so that every
 claim maps onto a WAEC/NECO/JAMB Biology syllabus point.
 
+Live: **https://merebari7-web.github.io/pulse/**
+
 ```
-npm install --legacy-peer-deps   # peer range of @react-three/fiber 9 vs React 19
+npm install                      # .npmrc already sets legacy-peer-deps (fiber 9 peer range vs React 19)
 npm run dev                      # http://localhost:5173  (binds 0.0.0.0)
 npm run build && npm run preview # production bundle + preview server
 npm run check                    # logic + shaders + build + scene + DOM (see “Verification”)
@@ -212,7 +214,7 @@ one place; the DOM test fails if a label asks for a hue that isn't in the palett
    really leaves home when the shell opens, that the DOM label anchors sit exactly on the animated
    bar tops (`BAR.floor + barTopWorld(...) + pad`), that the camera closes in and stays out of the
    model, that hover reaches the materials, and that unmounting disposes the geometry and materials.
-5. **`check:dom` — 12 assertions** rendering the real UI with React 19's server renderer: every
+5. **`check:dom` — 13 assertions** rendering the real UI with React 19's server renderer: every
    chapter's copy reaching the DOM, the peel index, the label layer, the gauge's numbers, the
    rail/nav/loader, and the app's no-WebGL path landing on the reader.
 
@@ -221,6 +223,11 @@ mismatch that scaled the entire model to NaN (black canvas, no error), a per-par
 that would have leaked across every material, an undefined `THREE` in the GLB path, and per-frame
 uniform writes to standard materials that have no uniform block. That is the value; screenshots
 would not have caught any of them.
+
+The same `npm run check` is the deploy gate: `.github/workflows/pages.yml` runs it on a clean
+`npm ci` before it publishes, so a regression cannot reach the live site. The first run of that
+workflow on GitHub completed `success` with all seven build steps green, and the deployed
+`index.html` is byte-identical to the local `dist/` built from the same commit.
 
 **Not verified here, and worth a look on a real machine:** actual GLSL compilation and lighting
 (a GPU is the only judge of the grade), the Bloom/AO look, ScrollTrigger's feel against a physical
@@ -244,9 +251,9 @@ study answers, not clinical advice.
 
 ## Publishing on GitHub (Pages)
 
-The repo is already a git repository with one commit, a `.gitignore` (`node_modules/`, `dist/`,
-`.tmp/`) and an `.npmrc` carrying `legacy-peer-deps=true`, so `npm ci` works for anyone who clones
-it. `dist/` is built with `base: './'`, so **every** asset URL in `index.html` is relative — verified
+**Deployed:** https://merebari7-web.github.io/pulse/ — every push to `main` redeploys it.
+
+`dist/` is built with `base: './'`, so **every** asset URL in `index.html` is relative — verified
 by serving `dist/` under a `/pulse/` subpath and fetching all six generated assets: 200 across the
 board. That is what makes it work at `https://<user>.github.io/<repo>/` with no config change.
 
@@ -257,11 +264,24 @@ git remote add origin git@github.com:<user>/pulse.git
 git push -u origin main
 ```
 
-Then **Settings → Pages → Build and deployment → Source: “GitHub Actions”**. From then on every push
-to `main` runs `.github/workflows/pages.yml`, which does `npm ci && npm run check && vite build` and
-publishes `dist/` — so a commit whose 62 assertions fail never deploys, and the Pages build is the
-same build the checks validated. (Prefer the older branch-based flow instead? `npm run build` then
-push `dist/` to a `gh-pages` branch — nothing in the app reads a path, so either works.)
+Then **Settings → Pages → Build and deployment → Source: “GitHub Actions”** (already set on the
+deployed repo). From then on every push to `main` runs `.github/workflows/pages.yml`, which does
+`npm ci && npm run check && vite build` and publishes `dist/` — so a commit whose 62 assertions
+fail never deploys, and the Pages build is the same build the checks validated. (Prefer the older
+branch-based flow instead? `npm run build` then push `dist/` to a `gh-pages` branch — nothing in the
+app reads a path, so either works.)
+
+`tools/gh-publish.sh` automates all of the above from a machine that has no git credential, using a
+token you export yourself:
+
+```bash
+GH_TOKEN=github_pat_… ./tools/gh-publish.sh <owner>      # add --check to dry-run
+```
+
+It creates the repo only if missing, never force-pushes, hands the token to git through a throwaway
+askpass file that is deleted on exit (so it never reaches `.git/config` or a credential store),
+flips Pages to `build_type: workflow`, and polls until the site is built. Pass `GIT_AUTHOR_NAME` /
+`GIT_AUTHOR_EMAIL` to re-author the history as yourself before publishing.
 
 Fonts, model geometry, shaders and icons are all local or generated, so Pages needs no CDN, no
 environment variables and no build secrets.

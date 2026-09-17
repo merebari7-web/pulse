@@ -60,6 +60,14 @@ unpack() { local code="${1##*$'\n'}"; printf '%s' "${1%$'\n'*}"; printf '\n' >/d
 # so a bare `"key":"value"` regex silently matches nothing — which is worse than
 # an error, because the poll loops below would just never see their terminal
 # state. Whitespace is stripped first so one helper covers both spellings.
+run_state() { # run_state <actions-runs-json> -> queued | running | succeeded | failed:<conclusion>
+  local b="$1"
+  if printf '%s' "$b" | { grep -qE '"total_count":[[:space:]]*0' || false; }; then echo queued; return; fi
+  if printf '%s' "$b" | { grep -qE '"status":[[:space:]]*"(queued|in_progress)"' || false; }; then echo running; return; fi
+  if printf '%s' "$b" | { grep -qE '"conclusion":[[:space:]]*"success"' || false; }; then echo succeeded; return; fi
+  local c; c="$(json_field conclusion "$b")"; echo "failed:${c:-none}"
+}
+
 json_field() { # json_field <key> <json>  — first "key":"value" in document order
   # the `|| true` matters: grep exits 1 on no match and set -o pipefail would
   # otherwise abort the whole script over a missing field
@@ -193,15 +201,12 @@ for _ in $(seq 1 "${GH_WAIT_ROUNDS:-30}"); do
   set -e
   RB="${RUNS_RAW%$'\n'*}"
   if [[ $rc -eq 0 ]]; then
-    if printf '%s' "$RB" | grep -qE '"total_count":[[:space:]]*0'; then
-      STATE="queued"
-    elif printf '%s' "$RB" | grep -qE '"status":[[:space:]]*"(queued|in_progress)"'; then
-      STATE="running"
-    elif printf '%s' "$RB" | grep -qE '"conclusion":[[:space:]]*"success"'; then
-      DEPLOY="ok"; STATE="succeeded"
-    else
-      DEPLOY="failed"; STATE="run $(json_field conclusion "$RB")"
-    fi
+    STATE="$(run_state "$RB")"
+    case "$STATE" in
+      succeeded) DEPLOY="ok" ;;
+      failed:*)  DEPLOY="failed (conclusion: ${STATE#failed:})" ;;
+      *)         DEPLOY="pending" ;;
+    esac
     [[ "$STATE" != "$LAST" ]] && { echo "→ deploy: $STATE"; LAST="$STATE"; }
     [[ "$DEPLOY" != "pending" ]] && break
   fi

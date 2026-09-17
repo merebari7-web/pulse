@@ -55,6 +55,18 @@ api() { # api <method> <path> [json]
 }
 unpack() { local code="${1##*$'\n'}"; printf '%s' "${1%$'\n'*}"; printf '\n' >/dev/null; echo "$code" >&2; }
 
+# GitHub's REST API answers with *indented* JSON ("key": "value", one per line),
+# so a bare `"key":"value"` regex silently matches nothing — which is worse than
+# an error, because the poll loops below would just never see their terminal
+# state. Whitespace is stripped first so one helper covers both spellings.
+json_field() { # json_field <key> <json>  — first "key":"value" in document order
+  # the `|| true` matters: grep exits 1 on no match and set -o pipefail would
+  # otherwise abort the whole script over a missing field
+  printf '%s' "$2" |
+    { grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" || true; } |
+    head -1 | sed 's/^[^:]*:[[:space:]]*"//; s/"$//'
+}
+
 set +e
 WHO_RAW="$(api GET /user)"; rc=$?
 set -e
@@ -63,7 +75,7 @@ WHO_CODE="${WHO_RAW##*$'\n'}"
 WHO_JSON="${WHO_RAW%$'\n'*}"
 [[ "$WHO_CODE" == "200" ]] || die "token rejected (HTTP $WHO_CODE). A fine-grained PAT has no /user access: pass the owner explicitly — ./tools/gh-publish.sh <owner>"
 
-WHO_LOGIN="$(printf '%s' "$WHO_JSON" | sed -n 's/.*"login":"\([^"]*\)".*/\1/p' | head -1)"
+WHO_LOGIN="$(json_field login "$WHO_JSON")"
 if [[ -z "$OWNER" ]]; then
   OWNER="$WHO_LOGIN"
   [[ -n "$OWNER" ]] || die "could not derive the owner from the token; pass it: ./tools/gh-publish.sh <owner>"
@@ -83,7 +95,8 @@ if [[ "$MODE" == "check" ]]; then
   REPO_CODE="${REPO_RAW##*$'\n'}"
   if [[ "$REPO_CODE" == "200" ]]; then
     echo "→ repo       : exists"
-    printf '%s' "${REPO_RAW%$'\n'*}" | sed -n 's/.*"default_branch":"\([^"]*\)".*/→ default   : \1/p'
+    DB="$(json_field default_branch "${REPO_RAW%$'\n'*}")"
+    [[ -n "$DB" ]] && echo "→ default   : $DB"
   else
     echo "→ repo       : not found (HTTP $REPO_CODE) — publish would create it as a public repo"
   fi
@@ -160,12 +173,12 @@ for _ in 1 2 3 4 5 6; do
   ST="$(api GET "/repos/$FULL/pages")"; rc=$?
   set -e
   BODY="${ST%$'\n'*}"
-  STATUS="$(printf '%s' "$BODY" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')"
+  STATUS="$(json_field status "$BODY")"
   echo "→ pages status: ${STATUS:-unknown}"
   [[ "$STATUS" == "built" ]] && break
 done
 
-URL="$(printf '%s' "$BODY" | sed -n 's/.*"html_url":"\([^"]*\)".*/\1/p')"
+URL="$(json_field html_url "$BODY")"
 echo
 echo "  repo : https://github.com/$FULL"
 echo "  site : ${URL:-https://$OWNER.github.io/$REPO/}"

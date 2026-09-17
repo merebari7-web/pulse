@@ -60,12 +60,25 @@ unpack() { local code="${1##*$'\n'}"; printf '%s' "${1%$'\n'*}"; printf '\n' >/d
 # so a bare `"key":"value"` regex silently matches nothing — which is worse than
 # an error, because the poll loops below would just never see their terminal
 # state. Whitespace is stripped first so one helper covers both spellings.
-run_state() { # run_state <actions-runs-json> -> queued | running | succeeded | failed:<conclusion>
-  local b="$1"
+run_state() { # run_state <actions-runs-json> -> queued | running | succeeded | failed:<c> | unknown
+  local b="$1" st c
   if printf '%s' "$b" | { grep -qE '"total_count":[[:space:]]*0' || false; }; then echo queued; return; fi
-  if printf '%s' "$b" | { grep -qE '"status":[[:space:]]*"(queued|in_progress)"' || false; }; then echo running; return; fi
-  if printf '%s' "$b" | { grep -qE '"conclusion":[[:space:]]*"success"' || false; }; then echo succeeded; return; fi
-  local c; c="$(json_field conclusion "$b")"; echo "failed:${c:-none}"
+  st="$(json_field status "$b")"
+  c="$(json_field conclusion "$b")"
+  case "$st" in
+    completed)
+      # GitHub publishes status:completed a moment before the conclusion, and a
+      # 404 or a half-written body must never be read as a failed deploy — only
+      # an explicit non-success conclusion is one.
+      case "$c" in
+        success) echo succeeded ;;
+        "")      echo running ;;
+        *)       echo "failed:$c" ;;
+      esac ;;
+    queued|in_progress|requested|waiting|pending) echo running ;;
+    "") echo unknown ;;
+    *)  echo running ;;
+  esac
 }
 
 json_field() { # json_field <key> <json>  — first "key":"value" in document order
@@ -227,11 +240,16 @@ done
 echo
 echo "  repo : https://github.com/$FULL"
 case "$DEPLOY" in
-  ok)    echo "  deploy: GitHub Actions succeeded on ${SHA:0:7}" ;;
-  built) echo "  deploy: Pages reports built" ;;
-  *)     echo "  deploy: $DEPLOY — see https://github.com/$FULL/actions" ;;
+  ok)      echo "  deploy: GitHub Actions succeeded on ${SHA:0:7}" ;;
+  built)   echo "  deploy: Pages reports built" ;;
+  pending) echo "  deploy: still $LAST after ${GH_WAIT_ROUNDS:-30} polls — watch https://github.com/$FULL/actions" ;;
+  failed*) echo "  deploy: $DEPLOY — read https://github.com/$FULL/actions" ;;
+  *)       echo "  deploy: $DEPLOY" ;;
 esac
 echo "  site : $SITE (HTTP $HTTP)"
 [[ "$HTTP" == 2* ]] || echo "  ! not answering yet — Pages can take a minute to propagate; retry $SITE"
 echo
 echo "  now revoke the token at https://github.com/settings/personal-access-tokens"
+# the push and the Pages toggle both succeeded, so this is not a push failure —
+# but a red deploy must not be reported as if the publish were clean
+[[ "$DEPLOY" == failed* ]] && exit 1
